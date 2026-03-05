@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="banner.png" alt="vibekit-cli" width="100%">
+</p>
+
 # vibekit-cli
 
 Manage AI-powered apps from your terminal. Deploy, chat with your AI agent, browse databases, tail logs — all without leaving the command line.

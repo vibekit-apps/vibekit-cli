@@ -1,36 +1,43 @@
 {
   "name": "vibekit-cli",
-  "version": "0.2.0",
-  "description": "VibeKit CLI — manage AI-powered apps from your terminal",
-  "main": "dist/cli.js",
+  "version": "0.3.0",
+  "description": "Deploy apps from your terminal. Built for AI coding agents. One command to production.",
   "bin": {
-    "vibekit": "dist/cli.js"
+    "vibekit": "./dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist/",
+    "README.md",
+    "AGENT.md"
   ],
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
-    "vibekit",
     "ai",
     "deploy",
-    "agent",
-    "cli",
+    "hosting",
     "coding-agent",
-    "openclaw"
+    "claude-code",
+    "cursor",
+    "vibe-coding",
+    "ai-deploy",
+    "app-hosting",
+    "production"
   ],
-  "author": "VibeKit",
+  "author": "609.sol",
   "license": "MIT",
-  "homepage": "https://vibekit.bot",
   "repository": {
     "type": "git",
-    "url": "https://github.com/609NFT/vibekit-cli"
+    "url": "https://github.com/609NFT/vibekit",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://vibekit.bot",
+  "engines": {
+    "node": ">=18"
   },
   "devDependencies": {
-    "@types/node": "^25.3.3",
     "typescript": "^5.0.0"
   }
 }

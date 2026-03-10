@@ -1,138 +1,126 @@
-<p align="center">
-  <img src="banner.png" alt="vibekit-cli" width="100%">
-</p>
+# vibekit
 
-# vibekit-cli
+Deploy apps from your terminal. Built for AI coding agents.
 
-Manage AI-powered apps from your terminal. Deploy, chat with your AI agent, browse databases, tail logs — all without leaving the command line.
-
-## Install
+## Install + Auth
 
 ```bash
-npm install -g vibekit-cli
+npm install -g vibekit
+vibekit auth $VIBEKIT_API_KEY
 ```
 
-## Quick Start
+## Agent Workflow
+
+The canonical "I just built something, now deploy it":
 
 ```bash
-# Save your API key (get one at https://app.vibekit.bot/settings)
-vibekit auth vk_your_key_here
-
-# List your apps
-vibekit apps
-
-# Chat with your AI agent
-vibekit chat surf "add a contact form to the landing page"
-
-# Tail logs
-vibekit logs surf
-
-# Run a SQL query
-vibekit db surf query "SELECT * FROM users LIMIT 10"
+# After building your app locally
+vibekit auth $VIBEKIT_API_KEY
+vibekit task "Deploy this app" --repo owner/repo
+vibekit wait $TASK_ID --json
+# Returns: {"deployUrl": "https://app.vibekit.bot", ...}
 ```
 
-## Commands
+## All Commands
 
-### Auth & Account
+| Command | Description |
+|---------|-------------|
+| `vibekit auth <key>` | Save API key |
+| `vibekit account` | Plan & usage info |
+| `vibekit task "<prompt>"` | Submit deployment task |
+| `vibekit status <id>` | Check task status |
+| `vibekit wait <id>` | Wait for completion |
+| `vibekit tasks` | List recent tasks |
+| `vibekit schedule "<prompt>"` | Create recurring task |
+| `vibekit schedules` | List scheduled tasks |
+| `vibekit unschedule <id>` | Cancel schedule |
+
+### Task Flags
+
+| Flag | Description |
+|------|-------------|
+| `--repo owner/name` | Target GitHub repo |
+| `--branch name` | Branch (default: main) |
+| `--no-deploy` | Skip auto-deploy |
+| `--callback <url>` | Webhook URL for completion |
+| `--every interval` | For schedules: hourly, daily, weekly |
+
+### Examples
 
 ```bash
-vibekit auth <api-key>         # Save API key
-vibekit account                # Plan, balance, usage
-vibekit usage [app-id]         # Usage stats
+# Deploy specific repo
+vibekit task "Add dark mode" --repo myorg/website
+
+# Deploy without auto-hosting  
+vibekit task "Fix the auth bug" --repo myorg/api --no-deploy
+
+# With webhook callback
+vibekit task "Build landing page" --callback https://myserver.com/done
+
+# Recurring deployment
+vibekit schedule "Deploy latest changes" --repo myorg/app --every daily
 ```
 
-### Apps
+## JSON Mode
+
+Add `--json` to any command for machine-readable output:
 
 ```bash
-vibekit apps                   # List your apps
-vibekit app <slug>             # App details
-vibekit start <slug>           # Start app
-vibekit stop <slug>            # Stop app
-vibekit restart <slug>         # Restart app
+vibekit task "Fix login bug" --repo myorg/app --json
+# {"taskId":"task_abc123","status":"running","repo":"vibekit-apps/project-abc123"}
+
+vibekit wait task_abc123 --json
+# {"status":"complete","result":{"deployUrl":"https://app.vibekit.bot","summary":"Fixed login validation..."}}
+
+vibekit account --json
+# {"plan":"builder","credits":15.42,"usage":{"sessions":23,"appsCreated":3}}
+
+vibekit status task_abc123 --json  
+# {"taskId":"task_abc123","status":"running","progress":"Installing dependencies..."}
 ```
 
-### AI Agent
-
-```bash
-vibekit chat <slug> "message"  # Send message to your AI agent
-vibekit agent <slug>           # Agent status & model
-```
-
-### Deploy
-
-```bash
-vibekit deploy <slug>          # Trigger redeploy
-vibekit deploys <slug>         # Deploy history
-vibekit rollback <slug> <id>   # Rollback to previous deploy
-```
-
-### Logs & Files
-
-```bash
-vibekit logs <slug>            # View logs (--lines 100)
-vibekit files <slug> [path]    # Browse workspace files
-```
-
-### Environment Variables
-
-```bash
-vibekit env <slug>             # List env vars (masked)
-vibekit env <slug> --reveal    # Show real values
-vibekit env <slug> set KEY=VAL # Set a variable
-vibekit env <slug> del KEY     # Delete a variable
-```
-
-### Database
-
-```bash
-vibekit db <slug>              # Database status
-vibekit db <slug> schema       # Tables & columns
-vibekit db <slug> table users  # Browse table data
-vibekit db <slug> query "SQL"  # Run read-only SQL
-vibekit db <slug> export       # Export as SQL dump
-```
-
-### Domain
-
-```bash
-vibekit domain <slug>          # Show domain config
-vibekit domain <slug> set x.co # Set custom domain
-vibekit domain <slug> ssl      # Request SSL cert
-```
-
-### Quality & Collaboration
-
-```bash
-vibekit qa <slug>                          # Run QA audit
-vibekit collaborators <slug>               # List collaborators
-vibekit collaborators <slug> add email     # Invite
-vibekit collaborators <slug> remove <id>   # Remove
-```
-
-### Tasks (Headless API)
-
-```bash
-vibekit task "Build a landing page"   # Submit coding task
-vibekit status <task-id>              # Check task status
-vibekit tasks                         # List recent tasks
-```
-
-## Flags
-
-- `--json` — Machine-readable JSON output for all commands
-- `--reveal` — Show unmasked env variable values
-- `--lines N` — Number of log lines to fetch
+All commands support `--json` for automation and parsing.
 
 ## Environment Variables
 
-- `VIBEKIT_API_KEY` — API key (overrides saved config)
-- `VIBEKIT_API_URL` — Custom API base URL
+| Variable | Description |
+|----------|-------------|
+| `VIBEKIT_API_KEY` | API key (overrides saved config) |
+
+Set in your environment or CI/CD pipeline:
+
+```bash
+export VIBEKIT_API_KEY=vk_your_key_here
+vibekit task "Deploy to production" --repo owner/repo --json
+```
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Task failed or general error |
+| 10 | Not authenticated (missing/invalid API key) |
+| 40 | API error (rate limit, invalid request) |
+
+Use exit codes for error handling in scripts:
+
+```bash
+if vibekit task "Deploy app" --repo owner/repo --json; then
+  echo "Deployment started successfully"
+else
+  echo "Failed to start deployment"
+  exit 1
+fi
+```
 
 ## Links
 
 - Website: https://vibekit.bot
-- Dashboard: https://app.vibekit.bot
+- Dashboard: https://app.vibekit.bot  
 - API Docs: https://vibekit.bot/SKILL.md
+- Telegram Bot: @the_vibe_kit_bot
+- GitHub: https://github.com/609NFT/vibekit
 
 ## License
 

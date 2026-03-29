@@ -263,8 +263,10 @@ async function cmdApp(args: string[]): Promise<void> {
           console.log(`Name:      ${a.subdomain || a.id}`);
           console.log(`Status:    ${a.status}`);
           console.log(`URL:       ${url}`);
-          console.log(`Plan:      ${a.plan}`);
-          if (a.containerId) console.log(`Container: ${a.containerId}`);
+          if (a.runtime) console.log(`Runtime:   ${a.runtime}`);
+          if (a.memory) console.log(`Memory:    ${a.memory} MB`);
+          if (a.uptime) console.log(`Uptime:    ${a.uptime}`);
+          if (a.customDomain) console.log(`Domain:    ${a.customDomain}`);
         }
         return;
       }
@@ -303,8 +305,8 @@ async function cmdAppCreate(args: string[]): Promise<void> {
   if (isJson) {
     output(data);
   } else {
-    success(`App created: ${subdomain}.vibekit.bot`);
-    if (data.app?.id) console.log(`ID: ${data.app.id}`);
+    success(`App created: ${data.subdomain || subdomain}.vibekit.bot`);
+    if (data.id) console.log(`ID: ${data.id}`);
   }
 }
 
@@ -399,8 +401,8 @@ async function cmdAppEnv(args: string[]): Promise<void> {
   const pairs = args.slice(1).filter(a => a.includes('=') && !a.startsWith('--'));
 
   if (pairs.length === 0) {
-    // Get env
-    const data = await api('GET', `/hosting/app/${slug}/env`);
+    // Get env (reveal=true to show actual values)
+    const data = await api('GET', `/hosting/app/${slug}/env?reveal=true`);
     if (isJson) {
       output(data);
     } else {

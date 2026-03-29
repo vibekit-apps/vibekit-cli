@@ -263,6 +263,8 @@ async function cmdApp(args) {
         case 'redeploy': return cmdAppRedeploy(rest);
         case 'rollback': return cmdAppRollback(rest);
         case 'env': return cmdAppEnv(rest);
+        case 'exec': return cmdAppExec(rest);
+        case 'stats': return cmdAppStats(rest);
         case 'chat': return cmdAppChat(rest);
         case 'history': return cmdAppHistory(rest);
         default: {
@@ -297,6 +299,9 @@ async function cmdApp(args) {
   vibekit app rollback <slug> <id>     Roll back to a snapshot
   vibekit app env <slug>               View env vars
   vibekit app env <slug> KEY=VAL ...   Set env vars
+  vibekit app env <slug> --delete KEY  Delete an env var
+  vibekit app exec <slug> "<cmd>"      Run a shell command in container
+  vibekit app stats <slug>             CPU/memory/disk stats
   vibekit app chat <slug> "<msg>"      Chat with AI agent
   vibekit app history <slug>           View agent chat history`);
         }
@@ -410,8 +415,14 @@ async function cmdAppRollback(args) {
 async function cmdAppEnv(args) {
     const slug = args[0];
     if (!slug) {
-        error('Usage: vibekit app env <slug> [KEY=VALUE ...]');
+        error('Usage: vibekit app env <slug> [KEY=VALUE ...] [--delete KEY]');
         process.exit(1);
+    }
+    const delKey = getFlag(args, '--delete') || getFlag(args, '-d');
+    if (delKey) {
+        await api('DELETE', `/hosting/app/${slug}/env/${delKey}`);
+        success(`Deleted ${delKey} from ${slug}`);
+        return;
     }
     const pairs = args.slice(1).filter(a => a.includes('=') && !a.startsWith('--'));
     if (pairs.length === 0) {
@@ -436,6 +447,46 @@ async function cmdAppEnv(args) {
         }
         await api('PUT', `/hosting/app/${slug}/env`, { vars });
         success(`Set ${Object.keys(vars).length} variable(s) for ${slug}`);
+    }
+}
+async function cmdAppExec(args) {
+    const slug = args[0];
+    const cleanArgs = args.slice(1).filter(a => !a.startsWith('--'));
+    const command = cleanArgs.join(' ');
+    if (!slug || !command) {
+        error('Usage: vibekit app exec <slug> "<command>"');
+        process.exit(1);
+    }
+    const data = await api('POST', `/hosting/app/${slug}/exec`, { command });
+    if (isJson) {
+        output(data);
+    }
+    else {
+        const out = data.output || data.stdout || data.result || JSON.stringify(data);
+        console.log(out);
+    }
+}
+async function cmdAppStats(args) {
+    const slug = args[0];
+    if (!slug) {
+        error('Usage: vibekit app stats <slug>');
+        process.exit(1);
+    }
+    const data = await api('GET', `/hosting/app/${slug}/stats`);
+    if (isJson) {
+        output(data);
+    }
+    else {
+        if (data.cpu !== undefined)
+            console.log(`CPU:    ${data.cpu}%`);
+        if (data.memory !== undefined)
+            console.log(`Memory: ${data.memory} MB`);
+        if (data.disk !== undefined)
+            console.log(`Disk:   ${data.disk} MB`);
+        if (data.uptime !== undefined)
+            console.log(`Uptime: ${data.uptime}`);
+        if (!data.cpu && !data.memory)
+            console.log(JSON.stringify(data, null, 2));
     }
 }
 async function cmdAppChat(args) {
@@ -660,6 +711,9 @@ Usage:
   vibekit app rollback <slug> <id>  Roll back to a snapshot
   vibekit app env <slug>            View env vars
   vibekit app env <slug> K=V ...    Set env vars
+  vibekit app env <slug> --delete K Delete an env var
+  vibekit app exec <slug> "<cmd>"   Run a shell command in container
+  vibekit app stats <slug>          CPU/memory/disk stats
   vibekit app chat <slug> "<msg>"   Chat with AI agent
   vibekit app history <slug>        View agent chat history
 
@@ -713,8 +767,10 @@ async function main() {
                 await cmdAccount();
                 break;
             case 'app':
-            case 'apps':
                 await cmdApp(rest);
+                break;
+            case 'apps':
+                await cmdApps();
                 break;
             case 'task':
                 await cmdTask(rest);

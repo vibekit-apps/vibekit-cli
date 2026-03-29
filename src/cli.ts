@@ -104,17 +104,15 @@ function success(msg: string): void {
 async function cmdAuth(args: string[]): Promise<void> {
   const subCmd = args[0];
 
-  // vibekit auth <api-key> — legacy: save API key directly
   if (subCmd && subCmd.startsWith('vk_')) {
     saveConfig({ ...loadConfig(), apiKey: subCmd });
     success(`API key saved to ${CONFIG_FILE}`);
     return;
   }
 
-  // vibekit auth login — interactive provider OAuth
   if (subCmd === 'login' || !subCmd) {
     const provider = args[1] || await promptProvider();
-    
+
     if (provider === 'anthropic' || provider === 'claude') {
       await authWithProvider('anthropic');
     } else if (provider === 'openai' || provider === 'codex') {
@@ -132,7 +130,6 @@ async function cmdAuth(args: string[]): Promise<void> {
     return;
   }
 
-  // vibekit auth status
   if (subCmd === 'status') {
     const config = loadConfig();
     if (!config.apiKey) { console.log('  Not authenticated. Run: vibekit auth'); return; }
@@ -153,7 +150,7 @@ async function authWithProvider(provider: 'anthropic' | 'openai'): Promise<void>
   const config = loadConfig();
   if (!config.apiKey) {
     error('Set your VibeKit API key first: vibekit auth <vk_key>');
-    error('Get one at https://vibekit.bot/app or via Telegram /apikey');
+    error('Get one at https://vibekit.bot or via Telegram /apikey');
     process.exit(1);
   }
 
@@ -163,7 +160,6 @@ async function authWithProvider(provider: 'anthropic' | 'openai'): Promise<void>
 
   const result = provider === 'anthropic' ? await loginAnthropic() : await loginOpenAI();
 
-  // Send token to VibeKit API
   const endpoint = provider === 'anthropic' ? '/account/claude-key' : '/account/openai-key';
   const bodyKey = provider === 'anthropic' ? 'claudeKey' : 'openaiKey';
 
@@ -207,16 +203,256 @@ async function cmdAccount(): Promise<void> {
     output(data);
   } else {
     console.log(`Plan:       ${data.plan}`);
-    console.log(`Credits:    $${data.credits.toFixed(2)}`);
+    console.log(`Credits:    $${(data.credits || 0).toFixed(2)}`);
     const mins = data.containerMinutes;
-    console.log(`Container:  ${mins.used}/${mins.limit === 'unlimited' ? '∞' : mins.limit} min`);
+    if (mins) console.log(`Container:  ${mins.used}/${mins.limit === 'unlimited' ? '∞' : mins.limit} min`);
     const tasks = data.scheduledTasks;
-    console.log(`Schedules:  ${tasks.limit === 'unlimited' ? '∞' : tasks.limit} allowed`);
+    if (tasks) console.log(`Schedules:  ${tasks.limit === 'unlimited' ? '∞' : tasks.limit} allowed`);
   }
 }
 
+// ---- App Commands ----
+
+async function cmdApps(): Promise<void> {
+  const data = await api('GET', '/hosting/apps');
+  if (isJson) {
+    output(data);
+  } else {
+    const apps = data.apps || data || [];
+    if (apps.length === 0) {
+      console.log('No apps yet. Create one: vibekit app create --template nextjs --subdomain myapp');
+      return;
+    }
+    for (const a of apps) {
+      const status = a.status === 'running' ? '●' : a.status === 'stopped' ? '○' : '◐';
+      const url = a.customDomain ? `https://${a.customDomain}` : `https://${a.subdomain}.vibekit.bot`;
+      console.log(`${status} ${(a.subdomain || a.id).padEnd(20)}  ${a.status?.padEnd(10) || ''}  ${url}`);
+    }
+  }
+}
+
+async function cmdApp(args: string[]): Promise<void> {
+  const subCmd = args[0];
+  const rest = args.slice(1);
+
+  switch (subCmd) {
+    case 'list': case 'ls': return cmdApps();
+    case 'create': return cmdAppCreate(rest);
+    case 'delete': case 'rm': return cmdAppDelete(rest);
+    case 'logs': return cmdAppLogs(rest);
+    case 'restart': return cmdAppRestart(rest);
+    case 'stop': return cmdAppStop(rest);
+    case 'start': return cmdAppStart(rest);
+    case 'deploy': return cmdAppDeploy(rest);
+    case 'redeploy': return cmdAppRedeploy(rest);
+    case 'rollback': return cmdAppRollback(rest);
+    case 'env': return cmdAppEnv(rest);
+    case 'chat': return cmdAppChat(rest);
+    case 'history': return cmdAppHistory(rest);
+    default: {
+      // vibekit app <slug> — show app details
+      if (subCmd) {
+        const data = await api('GET', `/hosting/app/${subCmd}`);
+        if (isJson) {
+          output(data);
+        } else {
+          const a = data.app || data;
+          const url = a.customDomain ? `https://${a.customDomain}` : `https://${a.subdomain}.vibekit.bot`;
+          console.log(`Name:      ${a.subdomain || a.id}`);
+          console.log(`Status:    ${a.status}`);
+          console.log(`URL:       ${url}`);
+          console.log(`Plan:      ${a.plan}`);
+          if (a.containerId) console.log(`Container: ${a.containerId}`);
+        }
+        return;
+      }
+      console.log(`Usage:
+  vibekit app                          List all apps
+  vibekit app <slug>                   Show app details
+  vibekit app create --subdomain <s>   Create a new app
+  vibekit app delete <slug>            Delete an app
+  vibekit app logs <slug>              View logs
+  vibekit app restart <slug>           Restart app
+  vibekit app stop <slug>              Stop app
+  vibekit app start <slug>             Start app
+  vibekit app deploy <slug>            Redeploy from workspace
+  vibekit app rollback <slug> <id>     Roll back to a snapshot
+  vibekit app env <slug>               View env vars
+  vibekit app env <slug> KEY=VAL ...   Set env vars
+  vibekit app chat <slug> "<msg>"      Chat with AI agent
+  vibekit app history <slug>           View agent chat history`);
+    }
+  }
+}
+
+async function cmdAppCreate(args: string[]): Promise<void> {
+  const subdomain = getFlag(args, '--subdomain') || getFlag(args, '-s');
+  const template = getFlag(args, '--template') || getFlag(args, '-t') || 'express';
+
+  if (!subdomain) {
+    error('Usage: vibekit app create --subdomain <name> [--template <template>]');
+    process.exit(1);
+  }
+
+  const data = await api('POST', '/hosting/apps', { subdomain, template });
+  if (isJson) {
+    output(data);
+  } else {
+    success(`App created: ${subdomain}.vibekit.bot`);
+    if (data.app?.id) console.log(`ID: ${data.app.id}`);
+  }
+}
+
+async function cmdAppDelete(args: string[]): Promise<void> {
+  const slug = args[0];
+  if (!slug) { error('Usage: vibekit app delete <slug>'); process.exit(1); }
+
+  await api('DELETE', `/hosting/app/${slug}`);
+  success(`App deleted: ${slug}`);
+}
+
+async function cmdAppLogs(args: string[]): Promise<void> {
+  const slug = args[0];
+  if (!slug) { error('Usage: vibekit app logs <slug> [--lines N]'); process.exit(1); }
+
+  const lines = getFlag(args, '--lines') || '100';
+  const data = await api('GET', `/hosting/app/${slug}/logs?lines=${lines}`);
+
+  if (isJson) {
+    output(data);
+  } else {
+    const logs = data.logs || data;
+    if (typeof logs === 'string') {
+      console.log(logs);
+    } else if (Array.isArray(logs)) {
+      console.log(logs.join('\n'));
+    } else {
+      console.log(JSON.stringify(logs, null, 2));
+    }
+  }
+}
+
+async function cmdAppRestart(args: string[]): Promise<void> {
+  const slug = args[0];
+  if (!slug) { error('Usage: vibekit app restart <slug>'); process.exit(1); }
+  await api('POST', `/hosting/app/${slug}/restart`);
+  success(`Restarting ${slug}`);
+}
+
+async function cmdAppStop(args: string[]): Promise<void> {
+  const slug = args[0];
+  if (!slug) { error('Usage: vibekit app stop <slug>'); process.exit(1); }
+  await api('POST', `/hosting/app/${slug}/stop`);
+  success(`Stopped ${slug}`);
+}
+
+async function cmdAppStart(args: string[]): Promise<void> {
+  const slug = args[0];
+  if (!slug) { error('Usage: vibekit app start <slug>'); process.exit(1); }
+  await api('POST', `/hosting/app/${slug}/start`);
+  success(`Started ${slug}`);
+}
+
+async function cmdAppDeploy(args: string[]): Promise<void> {
+  const slug = args[0];
+  if (!slug) { error('Usage: vibekit app deploy <slug>'); process.exit(1); }
+  const data = await api('POST', `/hosting/app/${slug}/redeploy`);
+  if (isJson) {
+    output(data);
+  } else {
+    success(`Deploying ${slug}...`);
+  }
+}
+
+async function cmdAppRedeploy(args: string[]): Promise<void> {
+  return cmdAppDeploy(args);
+}
+
+async function cmdAppRollback(args: string[]): Promise<void> {
+  const slug = args[0];
+  const deployId = args[1];
+  if (!slug || !deployId) {
+    error('Usage: vibekit app rollback <slug> <deploy-id>');
+    error('       Use: vibekit app history <slug> to list snapshots');
+    process.exit(1);
+  }
+  await api('POST', `/hosting/app/${slug}/deploys/${deployId}/rollback`);
+  success(`Rolled back ${slug} to ${deployId}`);
+}
+
+async function cmdAppEnv(args: string[]): Promise<void> {
+  const slug = args[0];
+  if (!slug) { error('Usage: vibekit app env <slug> [KEY=VALUE ...]'); process.exit(1); }
+
+  const pairs = args.slice(1).filter(a => a.includes('=') && !a.startsWith('--'));
+
+  if (pairs.length === 0) {
+    // Get env
+    const data = await api('GET', `/hosting/app/${slug}/env`);
+    if (isJson) {
+      output(data);
+    } else {
+      const vars = data.vars || data.env || data || {};
+      for (const [k, v] of Object.entries(vars)) {
+        console.log(`${k}=${v}`);
+      }
+    }
+  } else {
+    // Set env
+    const vars: Record<string, string> = {};
+    for (const pair of pairs) {
+      const eq = pair.indexOf('=');
+      vars[pair.slice(0, eq)] = pair.slice(eq + 1);
+    }
+    await api('PUT', `/hosting/app/${slug}/env`, { vars });
+    success(`Set ${Object.keys(vars).length} variable(s) for ${slug}`);
+  }
+}
+
+async function cmdAppChat(args: string[]): Promise<void> {
+  const slug = args[0];
+  const cleanArgs = args.slice(1).filter(a => !a.startsWith('--'));
+  const message = cleanArgs.join(' ');
+
+  if (!slug || !message) {
+    error('Usage: vibekit app chat <slug> "<message>"');
+    process.exit(1);
+  }
+
+  if (!isJson) process.stdout.write('Agent: ');
+  const data = await api('POST', `/hosting/app/${slug}/agent`, { message });
+
+  if (isJson) {
+    output(data);
+  } else {
+    const response = data.response || data.text || data.message || JSON.stringify(data);
+    console.log(response);
+  }
+}
+
+async function cmdAppHistory(args: string[]): Promise<void> {
+  const slug = args[0];
+  if (!slug) { error('Usage: vibekit app history <slug> [--limit N]'); process.exit(1); }
+
+  const limit = getFlag(args, '--limit') || '20';
+  const data = await api('GET', `/hosting/app/${slug}/agent/history?limit=${limit}`);
+
+  if (isJson) {
+    output(data);
+  } else {
+    const msgs = data.messages || data || [];
+    for (const m of msgs) {
+      const role = m.role === 'user' ? 'You' : 'Agent';
+      const text = (m.text || m.content || '').slice(0, 120);
+      const time = m.createdAt ? new Date(m.createdAt).toLocaleString() : '';
+      console.log(`[${time}] ${role}: ${text}${text.length >= 120 ? '…' : ''}`);
+    }
+  }
+}
+
+// ---- Task Commands ----
+
 async function cmdTask(args: string[]): Promise<void> {
-  // Filter out --flags from args
   const cleanArgs = args.filter(a => !a.startsWith('--'));
   const prompt = cleanArgs.join(' ');
 
@@ -225,7 +461,6 @@ async function cmdTask(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // Parse optional flags
   const repo = getFlag(args, '--repo');
   const branch = getFlag(args, '--branch');
   const callbackUrl = getFlag(args, '--callback');
@@ -284,7 +519,7 @@ async function cmdWait(args: string[]): Promise<void> {
 
   if (!isJson) process.stdout.write('Waiting');
 
-  for (let i = 0; i < 120; i++) { // 10 min max
+  for (let i = 0; i < 120; i++) {
     const data = await api('GET', `/task/${taskId}`);
 
     if (data.status === 'complete' || data.status === 'failed') {
@@ -387,7 +622,7 @@ function getFlag(args: string[], flag: string): string | undefined {
 
 function printHelp(): void {
   console.log(`
-vibekit — AI developer on demand
+vibekit — AI-powered app hosting and development
 
 Usage:
   vibekit auth                      Connect provider (interactive)
@@ -396,6 +631,22 @@ Usage:
   vibekit auth <api-key>            Save VibeKit API key
   vibekit auth status               Show connection status
   vibekit account                   Show plan & usage
+
+  vibekit app                       List all apps
+  vibekit app <slug>                Show app details
+  vibekit app create --subdomain s  Create a new app
+  vibekit app delete <slug>         Delete an app
+  vibekit app logs <slug>           View logs
+  vibekit app restart <slug>        Restart app
+  vibekit app stop <slug>           Stop app
+  vibekit app start <slug>          Start app
+  vibekit app deploy <slug>         Redeploy from workspace
+  vibekit app rollback <slug> <id>  Roll back to a snapshot
+  vibekit app env <slug>            View env vars
+  vibekit app env <slug> K=V ...    Set env vars
+  vibekit app chat <slug> "<msg>"   Chat with AI agent
+  vibekit app history <slug>        View agent chat history
+
   vibekit task "<prompt>"           Submit a coding task
   vibekit status <task-id>          Check task status
   vibekit wait <task-id>            Wait for task to complete
@@ -405,20 +656,26 @@ Usage:
   vibekit unschedule <id>           Cancel a schedule
 
 Flags:
-  --json                 Machine-readable JSON output
-  --repo owner/name      Target GitHub repo
-  --branch name          Target branch (default: main)
-  --every interval       Schedule interval: hourly|daily|weekly
-  --callback <url>       Webhook URL for task completion
-  --no-deploy            Skip auto-deploy
+  --json                            Machine-readable JSON output
+  --repo owner/name                 Target GitHub repo
+  --branch name                     Target branch (default: main)
+  --every interval                  Schedule interval: hourly|daily|weekly
+  --callback <url>                  Webhook URL for task completion
+  --no-deploy                       Skip auto-deploy
+  --lines N                         Number of log lines (default: 100)
+  --limit N                         Max results to return
 
 Examples:
-  vibekit task "Build a landing page with email signup"
-  vibekit task "Fix the login bug" --repo myorg/myapp
-  vibekit wait task_abc123 --json
-  vibekit schedule "Improve performance" --repo myorg/app --every daily
+  vibekit auth login anthropic
+  vibekit app list
+  vibekit app create --subdomain myapp --template nextjs
+  vibekit app logs myapp --lines 50
+  vibekit app env myapp DATABASE_URL=postgres://...
+  vibekit app chat myapp "add a contact form"
+  vibekit task "Build a landing page" --repo myorg/myapp
+  vibekit wait task_abc123
 
-Get your API key: https://t.me/the_vibe_kit_bot (/apikey)
+Get your API key: https://vibekit.bot
 API docs: https://vibekit.bot/SKILL.md
 `);
 }
@@ -439,6 +696,7 @@ async function main(): Promise<void> {
     switch (command) {
       case 'auth': await cmdAuth(rest); break;
       case 'account': await cmdAccount(); break;
+      case 'app': case 'apps': await cmdApp(rest); break;
       case 'task': await cmdTask(rest); break;
       case 'status': await cmdStatus(rest); break;
       case 'wait': await cmdWait(rest); break;
@@ -447,7 +705,7 @@ async function main(): Promise<void> {
       case 'schedules': await cmdSchedules(); break;
       case 'unschedule': await cmdUnschedule(rest); break;
       default:
-        // If it doesn't match a command, treat it as a task prompt
+        // Treat unknown command as a task prompt
         await cmdTask(args);
     }
   } catch (err: any) {

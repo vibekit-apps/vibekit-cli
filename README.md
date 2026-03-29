@@ -1,98 +1,175 @@
 # vibekit
 
-Deploy apps from your terminal. Built for AI coding agents.
+CLI for VibeKit — manage hosted apps and AI agents from your terminal.
 
-## Install + Auth
+## Install
 
 ```bash
 npm install -g vibekit
-vibekit auth $VIBEKIT_API_KEY
+vibekit auth login
+# or: vibekit auth vk_your_api_key
 ```
 
-## Agent Workflow
+Get an API key at [app.vibekit.bot](https://app.vibekit.bot) → Settings → API Keys.
 
-The canonical "I just built something, now deploy it":
+---
+
+## App Management
 
 ```bash
-# After building your app locally
-vibekit auth $VIBEKIT_API_KEY
-vibekit task "Deploy this app" --repo owner/repo
-vibekit wait $TASK_ID --json
-# Returns: {"deployUrl": "https://app.vibekit.bot", ...}
+# List all apps
+vibekit apps
+
+# Show app details
+vibekit app myapp
+
+# Create a new app
+vibekit app create --subdomain myapp --template nextjs
+
+# Tail logs
+vibekit app logs myapp --lines 50
+
+# Lifecycle
+vibekit app restart myapp
+vibekit app stop myapp
+vibekit app start myapp
+vibekit app delete myapp
+
+# Deploy & rollback
+vibekit app deploy myapp
+vibekit app rollback myapp <deploy-id>
+
+# Env vars
+vibekit app env myapp                        # list
+vibekit app env myapp API_KEY=abc PORT=3000  # set
+vibekit app env myapp --delete OLD_KEY       # delete
+
+# Run a shell command in the container
+vibekit app exec myapp "node -e 'console.log(process.version)'"
+
+# CPU/memory stats
+vibekit app stats myapp
 ```
+
+## AI Agent
+
+```bash
+# Chat with the agent
+vibekit app chat myapp "add a dark mode toggle to the settings page"
+
+# View conversation history
+vibekit app history myapp
+```
+
+---
+
+## Async Coding Tasks (GitHub-based)
+
+```bash
+# Submit a task
+vibekit task "Add a contact form" --repo myorg/myapp
+
+# Check status
+vibekit status task_abc123
+
+# Wait for completion
+vibekit wait task_abc123
+
+# List recent tasks
+vibekit tasks
+
+# Recurring tasks
+vibekit schedule "Improve performance" --repo myorg/app --every daily
+vibekit schedules
+vibekit unschedule <id>
+```
+
+---
+
+## Auth
+
+```bash
+vibekit auth login                  # interactive (prompts for provider)
+vibekit auth login anthropic        # connect Claude subscription
+vibekit auth login openai           # connect OpenAI subscription
+vibekit auth <vk_key>               # save API key directly
+vibekit auth status                 # show current auth state
+```
+
+---
 
 ## All Commands
 
+### App Commands
+
 | Command | Description |
 |---------|-------------|
-| `vibekit auth <key>` | Save API key |
-| `vibekit account` | Plan & usage info |
-| `vibekit task "<prompt>"` | Submit deployment task |
+| `vibekit apps` | List all apps |
+| `vibekit app <slug>` | Show app details |
+| `vibekit app create` | Create a new app |
+| `vibekit app delete <slug>` | Delete an app |
+| `vibekit app logs <slug>` | View logs |
+| `vibekit app restart <slug>` | Restart app |
+| `vibekit app stop <slug>` | Stop app |
+| `vibekit app start <slug>` | Start app |
+| `vibekit app deploy <slug>` | Redeploy from workspace |
+| `vibekit app rollback <slug> <id>` | Roll back to a snapshot |
+| `vibekit app env <slug>` | View env vars |
+| `vibekit app env <slug> K=V ...` | Set env vars |
+| `vibekit app env <slug> --delete K` | Delete an env var |
+| `vibekit app exec <slug> "<cmd>"` | Run shell command in container |
+| `vibekit app stats <slug>` | CPU/memory/disk stats |
+| `vibekit app chat <slug> "<msg>"` | Chat with AI agent |
+| `vibekit app history <slug>` | View agent chat history |
+
+### Task Commands
+
+| Command | Description |
+|---------|-------------|
+| `vibekit task "<prompt>"` | Submit async coding task |
 | `vibekit status <id>` | Check task status |
-| `vibekit wait <id>` | Wait for completion |
+| `vibekit wait <id>` | Wait for task to complete |
 | `vibekit tasks` | List recent tasks |
 | `vibekit schedule "<prompt>"` | Create recurring task |
-| `vibekit schedules` | List scheduled tasks |
-| `vibekit unschedule <id>` | Cancel schedule |
+| `vibekit schedules` | List schedules |
+| `vibekit unschedule <id>` | Cancel a schedule |
 
-### Task Flags
+### Flags
 
 | Flag | Description |
 |------|-------------|
+| `--json` | Machine-readable JSON output |
 | `--repo owner/name` | Target GitHub repo |
 | `--branch name` | Branch (default: main) |
-| `--no-deploy` | Skip auto-deploy |
-| `--callback <url>` | Webhook URL for completion |
-| `--every interval` | For schedules: hourly, daily, weekly |
+| `--lines N` | Log line count (default: 100) |
+| `--limit N` | Max results |
+| `--every interval` | Schedule interval: hourly, daily, weekly |
+| `--no-deploy` | Skip auto-deploy on task |
+| `--callback <url>` | Webhook URL for task completion |
 
-### Examples
-
-```bash
-# Deploy specific repo
-vibekit task "Add dark mode" --repo myorg/website
-
-# Deploy without auto-hosting  
-vibekit task "Fix the auth bug" --repo myorg/api --no-deploy
-
-# With webhook callback
-vibekit task "Build landing page" --callback https://myserver.com/done
-
-# Recurring deployment
-vibekit schedule "Deploy latest changes" --repo myorg/app --every daily
-```
+---
 
 ## JSON Mode
 
-Add `--json` to any command for machine-readable output:
+Every command supports `--json` for scripting:
 
 ```bash
-vibekit task "Fix login bug" --repo myorg/app --json
-# {"taskId":"task_abc123","status":"running","repo":"vibekit-apps/project-abc123"}
-
+vibekit apps --json
+vibekit app logs myapp --json
+vibekit task "Deploy latest" --repo myorg/app --json
 vibekit wait task_abc123 --json
-# {"status":"complete","result":{"deployUrl":"https://app.vibekit.bot","summary":"Fixed login validation..."}}
-
 vibekit account --json
-# {"plan":"builder","credits":15.42,"usage":{"sessions":23,"appsCreated":3}}
-
-vibekit status task_abc123 --json  
-# {"taskId":"task_abc123","status":"running","progress":"Installing dependencies..."}
 ```
 
-All commands support `--json` for automation and parsing.
+---
 
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `VIBEKIT_API_KEY` | API key (overrides saved config) |
+| `VIBEKIT_API_KEY` | Overrides saved API key |
 
-Set in your environment or CI/CD pipeline:
-
-```bash
-export VIBEKIT_API_KEY=vk_your_key_here
-vibekit task "Deploy to production" --repo owner/repo --json
-```
+---
 
 ## Exit Codes
 
@@ -100,28 +177,14 @@ vibekit task "Deploy to production" --repo owner/repo --json
 |------|---------|
 | 0 | Success |
 | 1 | Task failed or general error |
-| 10 | Not authenticated (missing/invalid API key) |
-| 40 | API error (rate limit, invalid request) |
+| 10 | Not authenticated |
+| 40 | API error |
 
-Use exit codes for error handling in scripts:
-
-```bash
-if vibekit task "Deploy app" --repo owner/repo --json; then
-  echo "Deployment started successfully"
-else
-  echo "Failed to start deployment"
-  exit 1
-fi
-```
+---
 
 ## Links
 
-- Website: https://vibekit.bot
-- Dashboard: https://app.vibekit.bot  
-- API Docs: https://vibekit.bot/SKILL.md
-- Telegram Bot: @the_vibe_kit_bot
-- GitHub: https://github.com/609NFT/vibekit
-
-## License
-
-MIT
+- [Dashboard](https://app.vibekit.bot)
+- [Website](https://vibekit.bot)
+- [API Docs](https://vibekit.bot/SKILL.md)
+- [GitHub](https://github.com/609NFT/vibekit)
